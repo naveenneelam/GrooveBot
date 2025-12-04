@@ -1,0 +1,7 @@
+{
+  "name": "GrooveBot: Audio-Reactive 3D Dancer",
+  "description": "A real-time audio analysis application that drives a procedural 3D humanoid skeleton. It extracts features like beat, bass, and energy from microphone or file input to synthesize dancing motion using inverse kinematics and physics-based interpolation.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
