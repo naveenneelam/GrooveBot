@@ -38,7 +38,8 @@ class AudioService {
     
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.8; 
+    // Lowered from 0.8 to 0.6 for snappier, real-time feel
+    this.analyser.smoothingTimeConstant = 0.6; 
     
     this.source.connect(this.analyser);
     

@@ -1,7 +1,36 @@
-import React, { useRef, useMemo, useEffect } from 'react';
+
+import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Group, MathUtils, Color, Euler, Vector3 } from 'three';
-import { AudioFeatures, MotionMapping, DancePose, DanceSequence, DEFAULT_POSE } from '../types';
+import { Group, MathUtils, Color, Vector3 } from 'three';
+import { AudioFeatures, MotionMapping, DancePose, DanceSequence, DEFAULT_POSE, FEATURE_COLORS } from '../types';
+
+// Fix for missing JSX type definitions for R3F elements
+// Augment both global and module-scoped JSX to cover different TS configurations
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      group: any;
+      mesh: any;
+      boxGeometry: any;
+      meshStandardMaterial: any;
+      circleGeometry: any;
+      meshBasicMaterial: any;
+    }
+  }
+}
+
+declare module 'react' {
+  namespace JSX {
+    interface IntrinsicElements {
+      group: any;
+      mesh: any;
+      boxGeometry: any;
+      meshStandardMaterial: any;
+      circleGeometry: any;
+      meshBasicMaterial: any;
+    }
+  }
+}
 
 interface RobotProps {
   features: AudioFeatures;
@@ -66,9 +95,8 @@ const Robot: React.FC<RobotProps> = ({ features, mapping, editorPose, activeSequ
   const timeRef = useRef(0);
   
   // Physics Simulation State (position & velocity for every joint)
-  // We use this to integrate forces before applying to ThreeJS objects
   const physicsState = useRef<Record<string, JointState>>({
-    hips:     { rotation: [0,0,0], velocity: [0,0,0] }, // Using rotation vector for position Y stored in x
+    hips:     { rotation: [0,0,0], velocity: [0,0,0] }, 
     spine:    { rotation: [0,0,0], velocity: [0,0,0] },
     head:     { rotation: [0,0,0], velocity: [0,0,0] },
     lArm:     { rotation: [0,0,0], velocity: [0,0,0] },
@@ -121,7 +149,6 @@ const Robot: React.FC<RobotProps> = ({ features, mapping, editorPose, activeSequ
   };
 
   // --- Physics Solver Function ---
-  // Integrates a spring-damper system and clamps to limits
   const solveJoint = (
     jointName: string, 
     targetRot: Vector3Tuple, 
@@ -169,8 +196,6 @@ const Robot: React.FC<RobotProps> = ({ features, mapping, editorPose, activeSequ
 
   useFrame((state, delta) => {
     timeRef.current += delta;
-    
-    // Prevent explosion on large delta (tab switching)
     const dt = Math.min(delta, 0.1);
 
     // --- 1. Mode Selection ---
@@ -191,9 +216,7 @@ const Robot: React.FC<RobotProps> = ({ features, mapping, editorPose, activeSequ
       targetPose = activeMoves[moveIndex.current] || DEFAULT_POSE;
     }
 
-    // Physics Parameters (Stiffer when editing, looser when dancing)
     const stiffness = isEditing ? 150 : 40 + getFeature('energy') * 20;
-    // Use user-provided damping unless in editor mode where we want stability
     const damping = isEditing ? 20 : userDamping;
 
     // --- 2. Calculate Procedural Targets & Noise ---
@@ -203,7 +226,6 @@ const Robot: React.FC<RobotProps> = ({ features, mapping, editorPose, activeSequ
     const wiggleVal = isEditing ? 0 : getFeature(mapping.armWiggle);
     const bass = isEditing ? 0 : getFeature('bass');
 
-    // Pitch logic
     const pitchHz = features.pitch;
     const hasPitch = pitchHz > 50; 
     const pitchTilt = hasPitch 
@@ -211,67 +233,52 @@ const Robot: React.FC<RobotProps> = ({ features, mapping, editorPose, activeSequ
       : 0;
 
     // --- 3. Run Physics Solver for All Joints ---
-
-    // HIPS (Position Y) - Treated as a 1D joint in our solver
     solveJoint('hips', [bounceVal * 0.5, 0, 0], dt, stiffness * 0.5, damping, 
       [Math.sin(timeRef.current * 10) * 0.1, 0, 0]
     );
 
-    // SPINE
     solveJoint('spine', targetPose.spine, dt, stiffness, damping, [
       Math.sin(timeRef.current * 5) * twistVal * 0.2, 
       Math.cos(timeRef.current * 3) * twistVal * 0.3, 
       0
     ]);
 
-    // HEAD
     solveJoint('head', targetPose.head, dt, stiffness, damping, [
       nodVal * 0.5, 
       Math.sin(timeRef.current * 8) * nodVal * 0.1, 
       isEditing ? 0 : pitchTilt
     ]);
 
-    // ARMS (Shoulders)
     const armWiggle = Math.sin(timeRef.current * 12) * wiggleVal;
     solveJoint('lArm', targetPose.lArm, dt, stiffness, damping, [0, 0, armWiggle * 0.3]);
     solveJoint('rArm', targetPose.rArm, dt, stiffness, damping, [0, 0, -armWiggle * 0.3]);
 
-    // FOREARMS (Elbows) - Procedurally driven by parent arm motion + wiggle
-    // If dancing, elbows react to energy. If editing, zero.
     const lForeArmTarget: Vector3Tuple = isEditing ? [0,0,0] : [0, 0, Math.abs(Math.sin(timeRef.current)) * 1.5 + wiggleVal];
     const rForeArmTarget: Vector3Tuple = isEditing ? [0,0,0] : [0, 0, -(Math.abs(Math.sin(timeRef.current)) * 1.5 + wiggleVal)];
     solveJoint('lForeArm', lForeArmTarget, dt, stiffness * 0.8, damping);
     solveJoint('rForeArm', rForeArmTarget, dt, stiffness * 0.8, damping);
 
-    // LEGS (Hips)
     solveJoint('lLeg', targetPose.lLeg, dt, stiffness, damping, [Math.sin(timeRef.current * 10) * bass * 0.2, 0, 0]);
     solveJoint('rLeg', targetPose.rLeg, dt, stiffness, damping, [-Math.sin(timeRef.current * 10) * bass * 0.2, 0, 0]);
 
-    // SHINS (Knees) - Procedural bend on beat
     const kneeBend = isEditing ? 0 : (features.isBeat ? 1.0 : 0.1);
     solveJoint('lShin', [kneeBend, 0, 0], dt, stiffness * 0.5, damping * 2);
     solveJoint('rShin', [kneeBend, 0, 0], dt, stiffness * 0.5, damping * 2);
 
-
     // --- 4. Apply Solved Physics State to THREE Objects ---
-    if (hipsRef.current) hipsRef.current.position.y = physicsState.current.hips.rotation[0]; // Mapping X rot to Y pos
-    
+    if (hipsRef.current) hipsRef.current.position.y = physicsState.current.hips.rotation[0];
     if (spineRef.current) spineRef.current.rotation.set(...physicsState.current.spine.rotation);
     if (headRef.current) headRef.current.rotation.set(...physicsState.current.head.rotation);
-    
     if (leftArmRef.current) leftArmRef.current.rotation.set(...physicsState.current.lArm.rotation);
     if (rightArmRef.current) rightArmRef.current.rotation.set(...physicsState.current.rArm.rotation);
-    
     if (leftForeArmRef.current) leftForeArmRef.current.rotation.set(...physicsState.current.lForeArm.rotation);
     if (rightForeArmRef.current) rightForeArmRef.current.rotation.set(...physicsState.current.rForeArm.rotation);
-    
     if (leftLegRef.current) leftLegRef.current.rotation.set(...physicsState.current.lLeg.rotation);
     if (rightLegRef.current) rightLegRef.current.rotation.set(...physicsState.current.rLeg.rotation);
-
     if (leftShinRef.current) leftShinRef.current.rotation.set(...physicsState.current.lShin.rotation);
     if (rightShinRef.current) rightShinRef.current.rotation.set(...physicsState.current.rShin.rotation);
 
-    // Global Scale Pulse (Direct, not physics)
+    // Global Scale Pulse
     if (rootRef.current) {
       const scaleVal = isEditing ? 0 : getFeature(mapping.scale);
       const s = 1 + scaleVal * 0.2;
@@ -279,44 +286,50 @@ const Robot: React.FC<RobotProps> = ({ features, mapping, editorPose, activeSequ
     }
   });
 
-  // Dynamic Color
-  const colorVal = getFeature(mapping.colorShift);
-  const color = new Color().setHSL(0.6 + colorVal * 0.4, 0.8, 0.5);
+  // --- Dynamic Material Logic ---
+  const emissivePulse = getFeature(mapping.colorShift);
+  
+  // Resolve colors based on what feature is driving each part
+  const hipsColor = FEATURE_COLORS[mapping.bounce];
+  const spineColor = FEATURE_COLORS[mapping.spineTwist];
+  const armsColor = FEATURE_COLORS[mapping.armWiggle];
+  const headColor = FEATURE_COLORS[mapping.headNod];
+  const legsColor = FEATURE_COLORS.bass; // Legs typically follow bass/beat if not mapped
 
-  const pitchColor = useMemo(() => {
-    const hue = MathUtils.mapLinear(MathUtils.clamp(features.pitch, 100, 1000), 100, 1000, 0.6, 0.05);
-    return new Color().setHSL(hue, 1, 0.6);
-  }, [features.pitch]);
+  // Common material props for cleaner JSX
+  const getMaterialProps = (baseColor: string) => ({
+    color: baseColor,
+    roughness: 0.3,
+    metalness: 0.8,
+    emissive: baseColor,
+    emissiveIntensity: 0.2 + (emissivePulse * 0.8) // Beat pulse affects all
+  });
 
   return (
     <group ref={rootRef} position={[0, -1, 0]}>
+      {/* HIPS (mapped to bounce) */}
       <group ref={hipsRef}>
         <mesh position={[0, 0, 0]}>
           <boxGeometry args={[BODY_WIDTH, 0.3, 0.4]} />
-          <meshStandardMaterial color={color} roughness={0.2} metalness={0.8} />
+          <meshStandardMaterial {...getMaterialProps(hipsColor)} />
         </mesh>
 
-        {/* SPINE */}
+        {/* SPINE (mapped to spineTwist) */}
         <group ref={spineRef} position={[0, 0.15, 0]}>
           <mesh position={[0, 0.6, 0]}>
             <boxGeometry args={[BODY_WIDTH * 0.9, BODY_HEIGHT, 0.5]} />
-            <meshStandardMaterial color="#333" roughness={0.4} />
+            <meshStandardMaterial {...getMaterialProps(spineColor)} />
             <mesh position={[0, 0, 0.26]}>
                <circleGeometry args={[0.15, 32]} />
-               <meshBasicMaterial color={features.isBeat ? "white" : color} />
+               <meshBasicMaterial color={features.isBeat ? "white" : spineColor} />
             </mesh>
           </mesh>
 
-          {/* HEAD */}
+          {/* HEAD (mapped to headNod) */}
           <group ref={headRef} position={[0, 1.25, 0]}>
             <mesh position={[0, 0.3, 0]}>
               <boxGeometry args={[HEAD_SIZE, HEAD_SIZE * 1.2, HEAD_SIZE]} />
-              <meshStandardMaterial 
-                color={color} 
-                roughness={0.2} 
-                emissive={features.pitch > 50 ? pitchColor : "black"}
-                emissiveIntensity={features.pitch > 50 ? 0.8 : 0}
-              />
+              <meshStandardMaterial {...getMaterialProps(headColor)} />
               <mesh position={[0.15, 0.1, 0.26]}>
                  <boxGeometry args={[0.1, 0.05, 0.05]} />
                  <meshBasicMaterial color="cyan" />
@@ -328,16 +341,16 @@ const Robot: React.FC<RobotProps> = ({ features, mapping, editorPose, activeSequ
             </mesh>
           </group>
 
-          {/* ARMS */}
+          {/* ARMS (mapped to armWiggle) */}
           <group ref={leftArmRef} position={[BODY_WIDTH * 0.6, 1.1, 0]}>
             <mesh position={[0, -LIMB_LENGTH/2, 0]}>
               <boxGeometry args={[LIMB_WIDTH, LIMB_LENGTH, LIMB_WIDTH]} />
-              <meshStandardMaterial color="#444" />
+              <meshStandardMaterial {...getMaterialProps(armsColor)} />
             </mesh>
             <group ref={leftForeArmRef} position={[0, -LIMB_LENGTH, 0]}>
                <mesh position={[0, -LIMB_LENGTH/2, 0]}>
                  <boxGeometry args={[LIMB_WIDTH*0.8, LIMB_LENGTH, LIMB_WIDTH*0.8]} />
-                 <meshStandardMaterial color={color} />
+                 <meshStandardMaterial {...getMaterialProps(armsColor)} />
                </mesh>
             </group>
           </group>
@@ -345,27 +358,27 @@ const Robot: React.FC<RobotProps> = ({ features, mapping, editorPose, activeSequ
           <group ref={rightArmRef} position={[-BODY_WIDTH * 0.6, 1.1, 0]}>
              <mesh position={[0, -LIMB_LENGTH/2, 0]}>
               <boxGeometry args={[LIMB_WIDTH, LIMB_LENGTH, LIMB_WIDTH]} />
-              <meshStandardMaterial color="#444" />
+              <meshStandardMaterial {...getMaterialProps(armsColor)} />
             </mesh>
              <group ref={rightForeArmRef} position={[0, -LIMB_LENGTH, 0]}>
                <mesh position={[0, -LIMB_LENGTH/2, 0]}>
                  <boxGeometry args={[LIMB_WIDTH*0.8, LIMB_LENGTH, LIMB_WIDTH*0.8]} />
-                 <meshStandardMaterial color={color} />
+                 <meshStandardMaterial {...getMaterialProps(armsColor)} />
                </mesh>
             </group>
           </group>
         </group>
 
-        {/* LEGS */}
+        {/* LEGS (Follow Bass/Beat) */}
         <group ref={leftLegRef} position={[0.25, -0.15, 0]}>
           <mesh position={[0, -LIMB_LENGTH/2, 0]}>
             <boxGeometry args={[LIMB_WIDTH, LIMB_LENGTH, LIMB_WIDTH]} />
-            <meshStandardMaterial color="#222" />
+            <meshStandardMaterial {...getMaterialProps(legsColor)} />
           </mesh>
            <group ref={leftShinRef} position={[0, -LIMB_LENGTH, 0]}>
               <mesh position={[0, -LIMB_LENGTH/2, 0]}>
                 <boxGeometry args={[LIMB_WIDTH*0.8, LIMB_LENGTH, LIMB_WIDTH*0.8]} />
-                <meshStandardMaterial color="#222" />
+                <meshStandardMaterial {...getMaterialProps(legsColor)} />
               </mesh>
            </group>
         </group>
@@ -373,12 +386,12 @@ const Robot: React.FC<RobotProps> = ({ features, mapping, editorPose, activeSequ
         <group ref={rightLegRef} position={[-0.25, -0.15, 0]}>
           <mesh position={[0, -LIMB_LENGTH/2, 0]}>
              <boxGeometry args={[LIMB_WIDTH, LIMB_LENGTH, LIMB_WIDTH]} />
-             <meshStandardMaterial color="#222" />
+             <meshStandardMaterial {...getMaterialProps(legsColor)} />
           </mesh>
           <group ref={rightShinRef} position={[0, -LIMB_LENGTH, 0]}>
               <mesh position={[0, -LIMB_LENGTH/2, 0]}>
                 <boxGeometry args={[LIMB_WIDTH*0.8, LIMB_LENGTH, LIMB_WIDTH*0.8]} />
-                <meshStandardMaterial color="#222" />
+                <meshStandardMaterial {...getMaterialProps(legsColor)} />
               </mesh>
            </group>
         </group>

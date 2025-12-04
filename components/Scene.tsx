@@ -1,9 +1,42 @@
+
 import React, { useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows, Stars, Text } from '@react-three/drei';
 import Robot from './Robot';
 import { AudioFeatures, MotionMapping, DEFAULT_MAPPING, DancePose, DanceSequence } from '../types';
 import * as THREE from 'three';
+
+// Fix for missing JSX type definitions for R3F elements
+// Augment both global and module-scoped JSX to cover different TS configurations
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      mesh: any;
+      circleGeometry: any;
+      meshStandardMaterial: any;
+      color: any;
+      fog: any;
+      ambientLight: any;
+      spotLight: any;
+      pointLight: any;
+    }
+  }
+}
+
+declare module 'react' {
+  namespace JSX {
+    interface IntrinsicElements {
+      mesh: any;
+      circleGeometry: any;
+      meshStandardMaterial: any;
+      color: any;
+      fog: any;
+      ambientLight: any;
+      spotLight: any;
+      pointLight: any;
+    }
+  }
+}
 
 interface SceneProps {
   features: AudioFeatures;

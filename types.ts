@@ -40,18 +40,35 @@ export interface MotionMapping {
   headNod: AudioFeatureKey;   // Head pitch
   scale: AudioFeatureKey;     // Overall size pulse
   colorShift: AudioFeatureKey;// Material color
+  legKick: AudioFeatureKey;
+  elbowFlex: AudioFeatureKey;
 }
+
+export const FEATURE_COLORS: Record<AudioFeatureKey, string> = {
+  bass: '#3b82f6',             // Blue-500
+  mid: '#22c55e',              // Green-500
+  treble: '#eab308',           // Yellow-500
+  energy: '#ef4444',           // Red-500
+  rms: '#a855f7',              // Purple-500
+  spectralCentroid: '#06b6d4', // Cyan-500
+  spectralFlux: '#ec4899',     // Pink-500
+  pitch: '#f97316'             // Orange-500
+};
 
 export const DEFAULT_MAPPING: MotionMapping = {
   bounce: 'bass',
   spineTwist: 'mid',
   armWiggle: 'energy',
   headNod: 'spectralFlux',
-  scale: 'rms',
-  colorShift: 'spectralCentroid'
+  scale: 'energy',
+  colorShift: 'spectralCentroid',
+  legKick: 'bass',
+  elbowFlex: 'treble'
 };
 
 export type AudioSourceType = 'mic' | 'file' | 'none';
+export type PlaybackStatus = 'playing' | 'paused' | 'stopped' | 'none';
+export type SolverMode = 'physics' | 'ik';
 
 // --- Sequencer Types ---
 

@@ -1,21 +1,24 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Scene from './components/Scene';
 import Controls from './components/Controls';
 import { audioService } from './services/audioService';
-import { AudioFeatures, AudioSourceType, MotionMapping, DEFAULT_MAPPING, AudioFeatureKey, DanceSequence, DancePose } from './types';
+import { AudioFeatures, AudioSourceType, MotionMapping, DEFAULT_MAPPING, AudioFeatureKey, DanceSequence, DancePose, PlaybackStatus, SolverMode } from './types';
 
 function App() {
   const [sourceType, setSourceType] = useState<AudioSourceType>('none');
+  const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus>('none');
   const [mapping, setMapping] = useState<MotionMapping>(DEFAULT_MAPPING);
   const [features, setFeatures] = useState<AudioFeatures>(audioService.getEmptyFeatures());
   const [damping, setDamping] = useState<number>(6);
+  const [solverMode, setSolverMode] = useState<SolverMode>('physics');
   
   // Sequencer State
   const [customSequences, setCustomSequences] = useState<DanceSequence[]>([]);
   const [activeSequenceId, setActiveSequenceId] = useState<string | null>(null);
   const [editorPose, setEditorPose] = useState<DancePose | null>(null);
 
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number>(0);
   const fileAudioElementRef = useRef<HTMLAudioElement | null>(null);
 
   const updateFeatures = useCallback(() => {
@@ -37,6 +40,7 @@ function App() {
     try {
       await audioService.initializeMic();
       setSourceType('mic');
+      setPlaybackStatus('playing');
       if (fileAudioElementRef.current) {
         fileAudioElementRef.current.pause();
         fileAudioElementRef.current = null;
@@ -55,15 +59,44 @@ function App() {
     const audio = new Audio(url);
     fileAudioElementRef.current = audio;
     
+    // Playback listeners
+    audio.onplay = () => setPlaybackStatus('playing');
+    audio.onpause = () => setPlaybackStatus('paused');
+    audio.onended = () => {
+      setPlaybackStatus('stopped');
+      // We do NOT set sourceType to 'none' here so the user can replay
+    };
+    
     try {
       await audio.play(); 
       await audioService.initializeFile(audio);
       setSourceType('file');
-      
-      audio.onended = () => setSourceType('none');
     } catch (err) {
       console.error("File Playback Error", err);
     }
+  };
+
+  // Playback Controls
+  const handleTogglePlay = () => {
+    if (!fileAudioElementRef.current) return;
+    if (fileAudioElementRef.current.paused) {
+      fileAudioElementRef.current.play();
+    } else {
+      fileAudioElementRef.current.pause();
+    }
+  };
+
+  const handleStop = () => {
+    if (!fileAudioElementRef.current) return;
+    fileAudioElementRef.current.pause();
+    fileAudioElementRef.current.currentTime = 0;
+    setPlaybackStatus('stopped');
+  };
+
+  const handleReplay = () => {
+    if (!fileAudioElementRef.current) return;
+    fileAudioElementRef.current.currentTime = 0;
+    fileAudioElementRef.current.play();
   };
 
   const handleUpdateMapping = (key: keyof MotionMapping, value: AudioFeatureKey) => {
@@ -107,10 +140,16 @@ function App() {
         onFileSelect={handleFileSelect}
         features={features}
         sourceType={sourceType}
+        playbackStatus={playbackStatus}
+        onTogglePlay={handleTogglePlay}
+        onStop={handleStop}
+        onReplay={handleReplay}
         mapping={mapping}
         onUpdateMapping={handleUpdateMapping}
         damping={damping}
         onDampingChange={setDamping}
+        solverMode={solverMode}
+        onSolverModeChange={setSolverMode}
         
         // Sequencer props
         customSequences={customSequences}
